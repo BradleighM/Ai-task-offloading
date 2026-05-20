@@ -3,6 +3,7 @@ from fastapi.responses import Response
 import cv2
 import numpy as np
 import time
+import psutil
 
 app = FastAPI(title="Edge Computing Server")
 
@@ -50,6 +51,11 @@ async def process_image_endpoint(file: UploadFile = File(...), filter_type: str 
     
     print("[SERVER] Processing complete. Sending back to client.")
     return Response(content=result_bytes, media_type="image/jpeg")
+
+@app.get("/status")
+def get_server_status():
+    """Returns the current CPU load of the Edge Server."""
+    return {"cpu_load": psutil.cpu_percent(interval=0.1)}
 
 # To run this server from the terminal, you will use:
 # uvicorn edge_server:app --reload --port 8000

@@ -13,27 +13,28 @@ class EdgeEnv(gym.Env):
         super(EdgeEnv, self).__init__()
         # Action: 0 or 1
         self.action_space = spaces.Discrete(2)
-        # Observation: CPU (0-100), Latency (0-500ms), Task (1-10)
-        self.observation_space = spaces.Box(low=0, high=500, shape=(3,), dtype=np.float32)
+        # Observation: Client CPU (0-100), Latency (0-500ms), Task (1-10), Server CPU (0-100)
+        self.observation_space = spaces.Box(low=0, high=500, shape=(4,), dtype=np.float32)
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         # Start with random conditions
         self.state = np.array([np.random.uniform(0, 100), 
                                np.random.uniform(10, 300), 
-                               np.random.uniform(1, 10)], dtype=np.float32)
+                               np.random.uniform(1, 10),
+                               np.random.uniform(0, 100)], dtype=np.float32)
         return self.state, {}
 
     def step(self, action):
-        cpu, latency, complexity = self.state
+        cpu, latency, complexity, server_cpu = self.state
         
         # Calculate "Cost"
         if action == 0: # Local
             cost = (complexity * 20) + (cpu * 0.5) # High CPU makes local processing "expensive"
             time_taken = complexity * 0.1
         else: # Remote
-            cost = latency * 0.5 # High latency makes offloading "expensive"
-            time_taken = (latency / 1000) + 0.05
+            cost = (latency * 0.5) + (server_cpu * 1.0) # High latency or busy server makes offloading "expensive"
+            time_taken = (latency / 1000) + 0.05 + (server_cpu / 100.0)
         
         # Reward is the negative cost (we want to minimize cost)
         reward = -cost
@@ -41,7 +42,8 @@ class EdgeEnv(gym.Env):
         # Generate next random state
         self.state = np.array([np.random.uniform(0, 100), 
                                np.random.uniform(10, 300), 
-                               np.random.uniform(1, 10)], dtype=np.float32)
+                               np.random.uniform(1, 10),
+                               np.random.uniform(0, 100)], dtype=np.float32)
         
         done = False # Keep playing
         truncated = False
