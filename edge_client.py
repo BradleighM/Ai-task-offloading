@@ -42,12 +42,24 @@ def get_network_latency():
     except:
         return 500.0 # High penalty if server is unreachable
 
+def get_server_cpu():
+    """Fetches the actual CPU load from the edge server."""
+    try:
+        response = requests.get(f"{SERVER_URL}/status", timeout=0.5)
+        if response.status_code == 200:
+            return response.json().get("cpu_load", 0.0)
+    except:
+        pass
+    return 100.0 # Heavy penalty if server is unreachable
+
 cpu_usage = psutil.cpu_percent(interval=0.1)
 latency = get_network_latency()
+server_cpu = get_server_cpu()
 
 # Sidebar Monitoring
 st.sidebar.header("📊 Live System Telemetry")
-st.sidebar.metric("Actual CPU Load", f"{cpu_usage}%")
+st.sidebar.metric("Client CPU Load", f"{cpu_usage}%")
+st.sidebar.metric("Server CPU Load", f"{server_cpu}%")
 st.sidebar.metric("Network Latency", f"{latency:.1f} ms")
 
 # --- NEW: Presentation Controls (The Toggle Switch) ---
@@ -79,7 +91,7 @@ with tabs[0]:
             actual_decision = "Local"
             st.error("⚠️ **AI Disabled:** Forcing Local Execution (Simulating 'Dumb' App)")
         elif model is not None:
-            obs = np.array([cpu_usage, latency, complexity], dtype=np.float32)
+            obs = np.array([cpu_usage, latency, complexity, server_cpu], dtype=np.float32)
             action, _ = model.predict(obs, deterministic=True)
             actual_decision = "Remote" if action == 1 else "Local"
             st.info(f"**AI Strategy Decision:** {actual_decision}")

@@ -7,3 +7,6 @@ requests
 python-multipart
 numpy
 pillow
+stable-baselines3
+gymnasium
+torch
