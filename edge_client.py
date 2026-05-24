@@ -8,13 +8,127 @@ import pandas as pd
 import plotly.express as px
 from PIL import Image
 import io
-from stable_baselines3 import PPO
+from sb3_contrib import RecurrentPPO
 
 # Configuration
+# SERVER_URL = "http://172.20.10.3:8000
 SERVER_URL = "http://localhost:8000"
 PROCESS_URL = f"{SERVER_URL}/process"
 
-st.set_page_config(page_title="Intelligent AI Edge Analytics", layout="wide")
+st.set_page_config(page_title="Intelligent AI Edge Analytics", layout="wide", page_icon="⚡")
+
+# --- Custom Premium UI Styling ---
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
+
+    /* Global Typography */
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
+    }
+
+    /* Main App Background (Dark Gradient) */
+    .stApp {
+        background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+        color: #f8fafc;
+    }
+
+    /* Headers */
+    h1 {
+        background: -webkit-linear-gradient(45deg, #38bdf8, #818cf8);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-weight: 800;
+        letter-spacing: -1px;
+    }
+    h2, h3 {
+        color: #cbd5e1;
+        font-weight: 600;
+    }
+
+    /* Sidebar Glassmorphism */
+    [data-testid="stSidebar"] {
+        background: rgba(15, 23, 42, 0.6) !important;
+        backdrop-filter: blur(16px) !important;
+        -webkit-backdrop-filter: blur(16px) !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    
+    /* Metrics Styling */
+    [data-testid="stMetricValue"] {
+        color: #38bdf8 !important;
+        font-weight: 800 !important;
+        font-size: 2.2rem !important;
+    }
+    [data-testid="stMetricLabel"] {
+        color: #94a3b8 !important;
+        font-weight: 600 !important;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    /* Primary Execute Button */
+    button[kind="primary"] {
+        background: linear-gradient(45deg, #4f46e5, #ec4899) !important;
+        border: none !important;
+        color: white !important;
+        font-weight: 600 !important;
+        padding: 0.75rem 1.5rem !important;
+        border-radius: 8px !important;
+        box-shadow: 0 4px 15px rgba(236, 72, 153, 0.4) !important;
+        transition: all 0.3s ease !important;
+    }
+    button[kind="primary"]:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 20px rgba(236, 72, 153, 0.6) !important;
+    }
+
+    /* Custom Tabs */
+    [data-baseweb="tab-list"] {
+        gap: 24px;
+        background-color: transparent;
+    }
+    [data-baseweb="tab"] {
+        background-color: transparent !important;
+        border-radius: 8px !important;
+        color: #94a3b8 !important;
+        border: 1px solid transparent !important;
+        transition: all 0.2s;
+    }
+    [data-baseweb="tab"]:hover {
+        color: #f8fafc !important;
+        background-color: rgba(255,255,255,0.05) !important;
+    }
+    [aria-selected="true"] {
+        color: #fff !important;
+        border: 1px solid rgba(255,255,255,0.2) !important;
+        background: rgba(255,255,255,0.1) !important;
+        backdrop-filter: blur(4px);
+    }
+
+    /* Status Alerts & Expanders */
+    .stAlert {
+        border-radius: 12px !important;
+        border: none !important;
+        background: rgba(255, 255, 255, 0.05) !important;
+        backdrop-filter: blur(10px) !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
+        color: #f8fafc !important;
+    }
+    
+    /* File Uploader area */
+    [data-testid="stFileUploadDropzone"] {
+        background: rgba(255,255,255,0.03) !important;
+        border: 1px dashed rgba(255,255,255,0.2) !important;
+        border-radius: 12px !important;
+        transition: all 0.3s ease;
+    }
+    [data-testid="stFileUploadDropzone"]:hover {
+        border-color: #38bdf8 !important;
+        background: rgba(255,255,255,0.08) !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # --- 1. Data Logging (Persistent during the session) ---
 if 'history' not in st.session_state:
@@ -22,11 +136,16 @@ if 'history' not in st.session_state:
         "Timestamp", "Decision", "Execution_Time", "CPU_Load", "Latency", "Complexity", "Energy_Est"
     ])
 
+if 'lstm_states' not in st.session_state:
+    st.session_state.lstm_states = None
+if 'episode_starts' not in st.session_state:
+    st.session_state.episode_starts = np.ones((1,), dtype=bool)
+
 # --- 2. Load the AI "Brain" ---
 @st.cache_resource
 def load_ai_model():
     try:
-        return PPO.load("edge_ai_model")
+        return RecurrentPPO.load("edge_ai_model")
     except Exception as e:
         return None
 
@@ -64,7 +183,7 @@ st.sidebar.metric("Network Latency", f"{latency:.1f} ms")
 
 # --- NEW: Presentation Controls (The Toggle Switch) ---
 st.sidebar.markdown("---")
-st.sidebar.subheader("⚙️ Presentation Controls")
+st.sidebar.subheader("⚙️ Testing Controls")
 override_ai = st.sidebar.checkbox(
     "Override AI (Force Local Only)", 
     value=False, 
@@ -92,9 +211,18 @@ with tabs[0]:
             st.error("⚠️ **AI Disabled:** Forcing Local Execution (Simulating 'Dumb' App)")
         elif model is not None:
             obs = np.array([cpu_usage, latency, complexity, server_cpu], dtype=np.float32)
-            action, _ = model.predict(obs, deterministic=True)
+            # Use recurrent state for predictive routing
+            action, st.session_state.lstm_states = model.predict(
+                obs, 
+                state=st.session_state.lstm_states, 
+                episode_start=st.session_state.episode_starts,
+                deterministic=True
+            )
+            # Reset episode start flag after first prediction
+            st.session_state.episode_starts = np.zeros((1,), dtype=bool)
+            
             actual_decision = "Remote" if action == 1 else "Local"
-            st.info(f"**AI Strategy Decision:** {actual_decision}")
+            st.info(f"**AI Strategy Decision:** {actual_decision} 🧠 *(Powered by Predictive LSTM Memory)*")
         else:
             actual_decision = "Local"
             st.warning("Model missing, defaulting to Local.")
