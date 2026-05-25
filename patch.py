@@ -1,15 +1,10 @@
-import streamlit as st
-import psutil
-import requests
-import cv2
-import numpy as np
-import time
-import pandas as pd
-import plotly.express as px
-from PIL import Image
-import io
-from sb3_contrib import RecurrentPPO
+import re
 
+with open('edge_client.py', 'r') as f:
+    content = f.read()
+
+# 1. Add imports and init_db before st.set_page_config
+imports_and_db = """
 import plotly.graph_objects as go
 import sqlite3
 from datetime import datetime
@@ -234,271 +229,26 @@ def render_dashboard():
 
 init_db()
 
+"""
 
+# Insert right after `from sb3_contrib import RecurrentPPO`
+if 'from sb3_contrib import RecurrentPPO' in content:
+    content = content.replace('from sb3_contrib import RecurrentPPO', 'from sb3_contrib import RecurrentPPO\n' + imports_and_db)
 
-# Configuration
-SERVER_URL = "http://192.168.1.26:8000"
-# SERVER_URL = "http://localhost:8000"
-PROCESS_URL = f"{SERVER_URL}/process"
+# Remove old list append logic and replace with log_routing_decision and log_anomaly_scores
+old_log = '''            # Log data to session history for charts
+            new_log = pd.DataFrame([{
+                "Timestamp": time.strftime("%H:%M:%S"),
+                "Decision": actual_decision,
+                "Execution_Time": exec_time,
+                "CPU_Load": cpu_usage,
+                "Latency": latency,
+                "Complexity": complexity,
+                "Energy_Est": energy_val
+            }])
+            st.session_state.history = pd.concat([st.session_state.history, new_log], ignore_index=True)'''
 
-st.set_page_config(page_title="Intelligent AI Edge Analytics", layout="wide", page_icon="⚡")
-
-# --- Custom Premium UI Styling ---
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
-
-    /* Global Typography */
-    html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
-    }
-
-    /* Main App Background (Dark Gradient) */
-    .stApp {
-        background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
-        color: #f8fafc;
-    }
-
-    /* Headers */
-    h1 {
-        background: -webkit-linear-gradient(45deg, #38bdf8, #818cf8);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-weight: 800;
-        letter-spacing: -1px;
-    }
-    h2, h3 {
-        color: #cbd5e1;
-        font-weight: 600;
-    }
-
-    /* Sidebar Glassmorphism */
-    [data-testid="stSidebar"] {
-        background: rgba(15, 23, 42, 0.6) !important;
-        backdrop-filter: blur(16px) !important;
-        -webkit-backdrop-filter: blur(16px) !important;
-        border-right: 1px solid rgba(255, 255, 255, 0.05);
-    }
-    
-    /* Metrics Styling */
-    [data-testid="stMetricValue"] {
-        color: #38bdf8 !important;
-        font-weight: 800 !important;
-        font-size: 2.2rem !important;
-    }
-    [data-testid="stMetricLabel"] {
-        color: #94a3b8 !important;
-        font-weight: 600 !important;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-
-    /* Primary Execute Button */
-    button[kind="primary"] {
-        background: linear-gradient(45deg, #4f46e5, #ec4899) !important;
-        border: none !important;
-        color: white !important;
-        font-weight: 600 !important;
-        padding: 0.75rem 1.5rem !important;
-        border-radius: 8px !important;
-        box-shadow: 0 4px 15px rgba(236, 72, 153, 0.4) !important;
-        transition: all 0.3s ease !important;
-    }
-    button[kind="primary"]:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 6px 20px rgba(236, 72, 153, 0.6) !important;
-    }
-
-    /* Custom Tabs */
-    [data-baseweb="tab-list"] {
-        gap: 24px;
-        background-color: transparent;
-    }
-    [data-baseweb="tab"] {
-        background-color: transparent !important;
-        border-radius: 8px !important;
-        color: #94a3b8 !important;
-        border: 1px solid transparent !important;
-        transition: all 0.2s;
-    }
-    [data-baseweb="tab"]:hover {
-        color: #f8fafc !important;
-        background-color: rgba(255,255,255,0.05) !important;
-    }
-    [aria-selected="true"] {
-        color: #fff !important;
-        border: 1px solid rgba(255,255,255,0.2) !important;
-        background: rgba(255,255,255,0.1) !important;
-        backdrop-filter: blur(4px);
-    }
-
-    /* Status Alerts & Expanders */
-    .stAlert {
-        border-radius: 12px !important;
-        border: none !important;
-        background: rgba(255, 255, 255, 0.05) !important;
-        backdrop-filter: blur(10px) !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
-        color: #f8fafc !important;
-    }
-    
-    /* File Uploader area */
-    [data-testid="stFileUploadDropzone"] {
-        background: rgba(255,255,255,0.03) !important;
-        border: 1px dashed rgba(255,255,255,0.2) !important;
-        border-radius: 12px !important;
-        transition: all 0.3s ease;
-    }
-    [data-testid="stFileUploadDropzone"]:hover {
-        border-color: #38bdf8 !important;
-        background: rgba(255,255,255,0.08) !important;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# --- 1. Data Logging (Persistent during the session) ---
-if 'history' not in st.session_state:
-    st.session_state.history = pd.DataFrame(columns=[
-        "Timestamp", "Decision", "Execution_Time", "CPU_Load", "Latency", "Complexity", "Energy_Est"
-    ])
-
-if 'lstm_states' not in st.session_state:
-    st.session_state.lstm_states = None
-if 'episode_starts' not in st.session_state:
-    st.session_state.episode_starts = np.ones((1,), dtype=bool)
-
-# --- 2. Load the AI "Brain" ---
-@st.cache_resource
-def load_ai_model():
-    try:
-        return RecurrentPPO.load("edge_ai_model")
-    except Exception as e:
-        return None
-
-model = load_ai_model()
-
-# --- 3. Real-Time Telemetry ---
-def get_network_latency():
-    """Measures actual round-trip time to the edge server."""
-    try:
-        start = time.time()
-        requests.get(SERVER_URL, timeout=0.5)
-        return (time.time() - start) * 1000 # Convert to ms
-    except:
-        return 500.0 # High penalty if server is unreachable
-
-def get_server_cpu():
-    """Fetches the actual CPU load from the edge server."""
-    try:
-        response = requests.get(f"{SERVER_URL}/status", timeout=0.5)
-        if response.status_code == 200:
-            return response.json().get("cpu_load", 0.0)
-    except:
-        pass
-    return 100.0 # Heavy penalty if server is unreachable
-
-# Create a fragment to auto-update sidebar telemetry without refreshing the whole app
-@st.fragment(run_every="2s")
-def render_live_telemetry():
-    c_cpu = psutil.cpu_percent(interval=0.1)
-    c_lat = get_network_latency()
-    s_cpu = get_server_cpu()
-    
-    st.header("📊 Live System Telemetry")
-    st.metric("Client CPU Load", f"{c_cpu}%")
-    st.metric("Server CPU Load", f"{s_cpu}%")
-    st.metric("Network Latency", f"{c_lat:.1f} ms")
-
-with st.sidebar:
-    render_live_telemetry()
-
-# Fetch current state once for the decision engine (used when task is executed)
-cpu_usage = psutil.cpu_percent(interval=0.1)
-latency = get_network_latency()
-server_cpu = get_server_cpu()
-
-# --- NEW: Presentation Controls (The Toggle Switch) ---
-st.sidebar.markdown("---")
-st.sidebar.subheader("⚙️ Testing Controls")
-override_ai = st.sidebar.checkbox(
-    "Override AI (Force Local Only)", 
-    value=False, 
-    help="Check this to simulate a 'dumb' app that refuses to offload."
-)
-
-# --- 4. Main UI with Tabs ---
-st.title("🧠 Intelligent Edge System & Research Analytics")
-tabs = st.tabs(["🚀 Real-Time Processor", "📈 Research Evaluation"])
-
-with tabs[0]:
-    st.header("Upload & Process")
-    uploaded_file = st.file_uploader("Upload Image", type=["jpg", "png"])
-    filter_choice = st.selectbox("Select Filter", ["Blur", "Edge Detection", "Grayscale"])
-
-    if uploaded_file:
-        img_pil = Image.open(uploaded_file)
-        width, height = img_pil.size
-        # Complexity = Megapixels (limited to 1-10 range)
-        complexity = min(max((width * height) / 1_000_000, 1), 10)
-        
-        # --- DECISION ENGINE LOGIC ---
-        if override_ai:
-            actual_decision = "Local"
-            st.error("⚠️ **AI Disabled:** Forcing Local Execution (Simulating 'Dumb' App)")
-        elif model is not None:
-            obs = np.array([cpu_usage, latency, complexity, server_cpu], dtype=np.float32)
-            # Use recurrent state for predictive routing
-            action, st.session_state.lstm_states = model.predict(
-                obs, 
-                state=st.session_state.lstm_states, 
-                episode_start=st.session_state.episode_starts,
-                deterministic=True
-            )
-            # Reset episode start flag after first prediction
-            st.session_state.episode_starts = np.zeros((1,), dtype=bool)
-            
-            actual_decision = "Remote" if action == 1 else "Local"
-            st.info(f"**AI Strategy Decision:** {actual_decision} 🧠 *(Powered by Predictive LSTM Memory)*")
-        else:
-            actual_decision = "Local"
-            st.warning("Model missing, defaulting to Local.")
-
-        if st.button("Execute Task", type="primary"):
-            start_time = time.time()
-            image_bytes = uploaded_file.getvalue()
-            
-            # --- Logic Execution ---
-            if actual_decision == "Remote":
-                with st.spinner("🌐 Offloading to Edge Server..."):
-                    files = {"file": ("img.jpg", image_bytes, "image/jpeg")}
-                    try:
-                        response = requests.post(PROCESS_URL, files=files, params={"filter_type": filter_choice})
-                        result = response.content if response.status_code == 200 else None
-                    except:
-                        result = None
-            else:
-                with st.spinner("💻 Processing on Local CPU..."):
-                    nparr = np.frombuffer(image_bytes, np.uint8)
-                    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                    if filter_choice == "Blur":
-                        processed = cv2.GaussianBlur(img, (51, 51), 0)
-                    elif filter_choice == "Edge Detection":
-                        processed = cv2.Canny(img, 100, 200)
-                        processed = cv2.cvtColor(processed, cv2.COLOR_GRAY2BGR)
-                    else:
-                        processed = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-                    time.sleep(0.5) # Simulate heavy local effort
-                    _, encoded = cv2.imencode('.jpg', processed)
-                    result = encoded.tobytes()
-
-            exec_time = time.time() - start_time
-            
-            # --- Energy Modeling ---
-            # Factor: Remote saves roughly 8x energy on the device side
-            energy_factor = 0.1 if actual_decision == "Remote" else 0.8
-            energy_val = exec_time * energy_factor * (cpu_usage/100 + 1)
-
-            # Log data to SQLite DB for persistent charts
+new_log = '''            # Log data to SQLite DB for persistent charts
             cpu = cpu_usage
             memory = psutil.virtual_memory().percent
             window_size = 50
@@ -524,13 +274,22 @@ with tabs[0]:
                     local_score=score,
                     server_score=score * 1.3 if decision_int == 1 else None,
                     ground_truth=None
-                )
+                )'''
 
-            if result:
-                col1, col2 = st.columns(2)
-                with col1: st.image(uploaded_file, caption="Input")
-                with col2: st.image(result, caption=f"Output ({actual_decision})")
-                st.success(f"Task completed in {exec_time:.2f}s")
+if old_log in content:
+    content = content.replace(old_log, new_log)
+else:
+    print("Could not find old_log block!")
 
-with tabs[1]:
-    render_dashboard()
+# Replace tab 2 with render_dashboard()
+# We need to find `with tabs[1]:` and replace everything after it.
+tab2_start = content.find('with tabs[1]:')
+if tab2_start != -1:
+    content = content[:tab2_start] + 'with tabs[1]:\n    render_dashboard()\n'
+else:
+    print("Could not find tabs[1] block!")
+
+with open('edge_client.py', 'w') as f:
+    f.write(content)
+
+print("Patch applied.")
