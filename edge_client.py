@@ -11,8 +11,8 @@ import io
 from sb3_contrib import RecurrentPPO
 
 # Configuration
-# SERVER_URL = "http://172.20.10.3:8000
-SERVER_URL = "http://localhost:8000"
+SERVER_URL = "http://192.168.1.26:8000"
+# SERVER_URL = "http://localhost:8000"
 PROCESS_URL = f"{SERVER_URL}/process"
 
 st.set_page_config(page_title="Intelligent AI Edge Analytics", layout="wide", page_icon="⚡")
@@ -171,15 +171,25 @@ def get_server_cpu():
         pass
     return 100.0 # Heavy penalty if server is unreachable
 
+# Create a fragment to auto-update sidebar telemetry without refreshing the whole app
+@st.fragment(run_every="2s")
+def render_live_telemetry():
+    c_cpu = psutil.cpu_percent(interval=0.1)
+    c_lat = get_network_latency()
+    s_cpu = get_server_cpu()
+    
+    st.header("📊 Live System Telemetry")
+    st.metric("Client CPU Load", f"{c_cpu}%")
+    st.metric("Server CPU Load", f"{s_cpu}%")
+    st.metric("Network Latency", f"{c_lat:.1f} ms")
+
+with st.sidebar:
+    render_live_telemetry()
+
+# Fetch current state once for the decision engine (used when task is executed)
 cpu_usage = psutil.cpu_percent(interval=0.1)
 latency = get_network_latency()
 server_cpu = get_server_cpu()
-
-# Sidebar Monitoring
-st.sidebar.header("📊 Live System Telemetry")
-st.sidebar.metric("Client CPU Load", f"{cpu_usage}%")
-st.sidebar.metric("Server CPU Load", f"{server_cpu}%")
-st.sidebar.metric("Network Latency", f"{latency:.1f} ms")
 
 # --- NEW: Presentation Controls (The Toggle Switch) ---
 st.sidebar.markdown("---")
