@@ -55,15 +55,21 @@ class EdgeEnv(gym.Env):
         cpu, latency, complexity, server_cpu = self.state
         
         # Calculate "Cost"
+        cost_local = (complexity * 20) + (cpu * 0.5)
+        cost_remote = (latency * 0.5) + (server_cpu * 1.0)
+        
         if action == 0: # Local
-            cost = (complexity * 20) + (cpu * 0.5) # High CPU makes local processing "expensive"
+            cost = cost_local
             time_taken = complexity * 0.1
         else: # Remote
-            cost = (latency * 0.5) + (server_cpu * 1.0) # High latency or busy server makes offloading "expensive"
+            cost = cost_remote
             time_taken = (latency / 1000) + 0.05 + (server_cpu / 100.0)
         
-        # Reward is the negative cost (we want to minimize cost)
-        reward = -cost
+        # Classification reward for RL
+        if cost <= min(cost_local, cost_remote):
+            reward = 1.0
+        else:
+            reward = -1.0
         
         # Generate next dynamic state
         self.state = self._generate_state()
@@ -79,10 +85,10 @@ if __name__ == "__main__":
 
     print("🧠 Training AI Brain (RecurrentPPO Algorithm)...")
     # RecurrentPPO uses an LSTM layer to track history
-    model = RecurrentPPO("MlpLstmPolicy", env, verbose=1)
+    model = RecurrentPPO("MlpLstmPolicy", env, verbose=1, learning_rate=0.001)
     
-    # Train it for 20,000 "steps" or "decisions" to ensure full coverage
-    model.learn(total_timesteps=20000)
+    # Train it for 10,000 "steps" or "decisions" to ensure full coverage
+    model.learn(total_timesteps=10000)
 
     print("💾 Saving Model...")
     model.save("edge_ai_model")

@@ -459,6 +459,21 @@ with tabs[0]:
             
             actual_decision = "Remote" if action == 1 else "Local"
             st.info(f"**AI Strategy Decision:** {actual_decision} 🧠 *(Powered by Predictive LSTM Memory)*")
+            
+            # Explain the decision
+            est_local_cost = (complexity * 20) + (cpu_usage * 0.5)
+            est_remote_cost = (latency * 0.5) + (server_cpu * 1.0)
+            
+            with st.expander("💡 See AI Reasoning", expanded=False):
+                st.markdown(f"""
+                **Why did the AI choose {actual_decision}?**  
+                The neural network evaluates abstract internal 'costs' to minimize latency and energy (lower is better).
+                *   **Task Complexity:** {complexity:.1f}/10.0
+                *   **Local Cost Estimate:** `{est_local_cost:.1f}` (Based on Complexity & Client CPU)
+                *   **Remote Cost Estimate:** `{est_remote_cost:.1f}` (Based on Network Latency & Server CPU)
+                
+                The AI selected **{actual_decision}** because it has the lowest projected cost.
+                """)
         else:
             actual_decision = "Local"
             st.warning("Model missing, defaulting to Local.")
