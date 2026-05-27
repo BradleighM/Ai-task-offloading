@@ -35,6 +35,8 @@ def process_image_cv(image_bytes: bytes, filter_type: str) -> bytes:
     return encoded_img.tobytes()
 
 
+
+
 @app.post("/process")
 async def process_image_endpoint(file: UploadFile = File(...), filter_type: str = "Grayscale"):
     """
@@ -51,6 +53,13 @@ async def process_image_endpoint(file: UploadFile = File(...), filter_type: str 
     
     print("[SERVER] Processing complete. Sending back to client.")
     return Response(content=result_bytes, media_type="image/jpeg")
+
+@app.get("/")
+def root():
+    return {
+        "message": "Edge Computing Server Running",
+        "status": "online"
+    }
 
 @app.get("/status")
 def get_server_status():

@@ -26,14 +26,33 @@ import asyncio
 import random
 import time
 import io
+import psutil
 
+from contextlib import asynccontextmanager
 import cv2
 import numpy as np
 import uvicorn
 from fastapi import FastAPI, File, UploadFile, HTTPException, Query
 from fastapi.responses import Response
 
-app = FastAPI(title="Edge Server — Demo Mode")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("\n" + "="*60)
+    print("  Edge Server running on http://localhost:8000")
+    print("="*60)
+    print("\n  DEMO COMMANDS (run in a second terminal):\n")
+    print("  # Switch to SLOW network (forces local execution)")
+    print('  curl -X POST "http://localhost:8000/set-latency?mode=slow"\n')
+    print("  # Switch back to NORMAL (agent offloads under high CPU)")
+    print('  curl -X POST "http://localhost:8000/set-latency?mode=normal"\n')
+    print("  # Random jitter (tests LSTM agent)")
+    print('  curl -X POST "http://localhost:8000/set-latency?mode=jitter"\n')
+    print("  # Check current mode")
+    print('  curl http://localhost:8000/latency-status\n')
+    print("="*60 + "\n")
+    yield
+
+app = FastAPI(title="Edge Server — Demo Mode", lifespan=lifespan)
 
 # ── Latency state (shared, thread-safe for single-process demo) ───────────────
 LATENCY_MODE = "normal"          # "normal" | "slow" | "jitter"
@@ -72,6 +91,14 @@ async def set_latency(mode: str = Query(..., description="normal | slow | jitter
     return {"mode": mode, "min_ms": lo, "max_ms": hi, "message": msg}
 
 
+@app.get("/")
+async def root():
+    await inject_latency()
+    return {
+        "message": "Edge Server Running",
+        "latency_mode": LATENCY_MODE
+    }
+
 @app.get("/latency-status")
 async def latency_status():
     lo, hi = LATENCY_MAP[LATENCY_MODE]
@@ -81,13 +108,21 @@ async def latency_status():
 @app.get("/ping")
 async def ping():
     """Used by the client to measure RTT."""
+    await inject_latency()
     return {"status": "ok", "latency_mode": LATENCY_MODE}
 
+@app.get("/status")
+def status():
+    return {
+        "status": "online",
+        "latency_mode": LATENCY_MODE,
+        "cpu_load": psutil.cpu_percent(interval=0.1)
+    }
 
-@app.post("/process-image")
+@app.post("/process")
 async def process_image(
     file: UploadFile = File(...),
-    filter_type: str = Query("blur", description="blur | edges | median")
+    filter_type: str = Query("Grayscale", description="Grayscale | Blur | Edge Detection | median")
 ):
     """
     Receive an image, apply the chosen OpenCV filter, return the result.
@@ -104,15 +139,20 @@ async def process_image(
 
     t_start = time.perf_counter()
 
-    if filter_type == "blur":
-        result = cv2.GaussianBlur(img, (21, 21), 0)
-    elif filter_type == "edges":
+    ft_lower = filter_type.lower()
+    if ft_lower in ["blur", "gaussianblur"]:
+        result = cv2.GaussianBlur(img, (51, 51), 0)
+    elif ft_lower in ["edges", "edge detection", "edge_detection", "edge"]:
         gray   = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        result = cv2.Canny(gray, 100, 200)
-    elif filter_type == "median":
+        canny  = cv2.Canny(gray, 100, 200)
+        result = cv2.cvtColor(canny, cv2.COLOR_GRAY2BGR)
+    elif ft_lower in ["grayscale", "gray"]:
+        gray   = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        result = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+    elif ft_lower == "median":
         result = cv2.medianBlur(img, 15)
     else:
-        raise HTTPException(status_code=400, detail=f"Unknown filter '{filter_type}'.")
+        result = img
 
     proc_ms = (time.perf_counter() - t_start) * 1000
 
@@ -128,22 +168,6 @@ async def process_image(
 
 
 # ── Startup banner ────────────────────────────────────────────────────────────
-
-@app.on_event("startup")
-async def startup_banner():
-    print("\n" + "="*60)
-    print("  Edge Server running on http://localhost:8000")
-    print("="*60)
-    print("\n  DEMO COMMANDS (run in a second terminal):\n")
-    print("  # Switch to SLOW network (forces local execution)")
-    print('  curl -X POST "http://localhost:8000/set-latency?mode=slow"\n')
-    print("  # Switch back to NORMAL (agent offloads under high CPU)")
-    print('  curl -X POST "http://localhost:8000/set-latency?mode=normal"\n')
-    print("  # Random jitter (tests LSTM agent)")
-    print('  curl -X POST "http://localhost:8000/set-latency?mode=jitter"\n')
-    print("  # Check current mode")
-    print('  curl http://localhost:8000/latency-status\n')
-    print("="*60 + "\n")
 
 
 if __name__ == "__main__":
