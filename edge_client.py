@@ -43,10 +43,16 @@ def init_db():
     ''')
     try:
         c.execute("ALTER TABLE routing_log ADD COLUMN energy_val REAL DEFAULT 0.0")
+    except sqlite3.OperationalError:
+        pass
+    try:
         c.execute("ALTER TABLE routing_log ADD COLUMN baseline_energy REAL DEFAULT 0.0")
+    except sqlite3.OperationalError:
+        pass
+    try:
         c.execute("ALTER TABLE routing_log ADD COLUMN baseline_exec_ms REAL DEFAULT 0.0")
     except sqlite3.OperationalError:
-        pass # Columns already exist
+        pass
         
     c.execute('''
         CREATE TABLE IF NOT EXISTS anomaly_scores (
@@ -308,7 +314,7 @@ init_db()
 
 
 # Configuration
-SERVER_URL = "http://192.168.1.26:8000"
+SERVER_URL = "http://172.20.10.3:8000"
 # SERVER_URL = "http://localhost:8000"
 PROCESS_URL = f"{SERVER_URL}/process"
 
