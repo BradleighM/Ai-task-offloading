@@ -190,7 +190,7 @@ def render_dashboard():
             gt = df_anom[df_anom["ground_truth"] == 1]
             if not gt.empty: fig.add_trace(go.Scatter(x=gt.index, y=gt["local_score"], mode="markers", name="True Anomaly (NAB)", marker=dict(color="#EF4444", size=8, symbol="x")))
             fig.update_layout(height=380, xaxis_title="Time Step", yaxis_title="Anomaly Score", legend=dict(orientation="h", y=1.1), margin=dict(l=0, r=0, t=30, b=0))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
             
     with t2:
         col_a, col_b = st.columns(2)
@@ -199,7 +199,7 @@ def render_dashboard():
             fig2 = go.Figure()
             fig2.add_trace(go.Scatter(x=df_log["timestamp"], y=df_log["decision"], mode="markers+lines", marker=dict(color=df_log["decision"].map({0: "#3B82F6", 1: "#F59E0B"}), size=6), line=dict(color="#6B7280", width=0.5), name="Decision (0=Local, 1=Server)"))
             fig2.update_layout(height=300, yaxis=dict(tickvals=[0,1], ticktext=["Local","Server"]), margin=dict(l=0, r=0, t=10, b=0))
-            st.plotly_chart(fig2, use_container_width=True)
+            st.plotly_chart(fig2, width="stretch")
         with col_b:
             st.subheader("Offload Rate by Urgency Score Bucket")
             df_log["urgency_bucket"] = pd.cut(df_log["urgency_score"], bins=[0, 0.2, 0.4, 0.6, 0.8, 1.0], labels=["0-0.2","0.2-0.4","0.4-0.6","0.6-0.8","0.8-1.0"])
@@ -207,7 +207,7 @@ def render_dashboard():
             offload_by_urgency.columns = ["Urgency Bucket", "Offload Rate"]
             fig3 = px.bar(offload_by_urgency, x="Urgency Bucket", y="Offload Rate", color="Offload Rate", color_continuous_scale="Oranges", height=300)
             fig3.update_layout(margin=dict(l=0, r=0, t=10, b=0))
-            st.plotly_chart(fig3, use_container_width=True)
+            st.plotly_chart(fig3, width="stretch")
         st.subheader("Execution Latency Distribution")
         fig4 = go.Figure()
         local_rows = df_log[df_log["decision"] == 0]["execution_ms"]
@@ -215,7 +215,7 @@ def render_dashboard():
         if not local_rows.empty: fig4.add_trace(go.Histogram(x=local_rows, name="Local", opacity=0.7, marker_color="#3B82F6", nbinsx=30))
         if not server_rows.empty: fig4.add_trace(go.Histogram(x=server_rows, name="Server", opacity=0.7, marker_color="#F59E0B", nbinsx=30))
         fig4.update_layout(barmode="overlay", height=280, xaxis_title="Latency (ms)", yaxis_title="Count", margin=dict(l=0, r=0, t=10, b=0))
-        st.plotly_chart(fig4, use_container_width=True)
+        st.plotly_chart(fig4, width="stretch")
         
     with t3:
         st.subheader("System State History")
@@ -225,14 +225,14 @@ def render_dashboard():
             if col == "urgency_score": y_vals = y_vals * 100
             fig5.add_trace(go.Scatter(x=df_log["timestamp"], y=y_vals, name=label, line=dict(color=color, width=1.5), opacity=0.85))
         fig5.update_layout(height=380, xaxis_title="Time", yaxis_title="Value", legend=dict(orientation="h", y=1.1), margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig5, use_container_width=True)
+        st.plotly_chart(fig5, width="stretch")
         if "predicted_latency" in df_log.columns and df_log["predicted_latency"].notna().any():
             st.subheader("Predicted vs Actual Latency (RecurrentPPO)")
             fig6 = go.Figure()
             fig6.add_trace(go.Scatter(x=df_log["timestamp"], y=df_log["predicted_latency"], name="LSTM Predicted", line=dict(color="#6366F1", dash="dash")))
             fig6.add_trace(go.Scatter(x=df_log["timestamp"], y=df_log["network_latency"], name="Actual RTT", line=dict(color="#10B981")))
             fig6.update_layout(height=280, xaxis_title="Time", yaxis_title="Latency (ms)", margin=dict(l=0, r=0, t=10, b=0))
-            st.plotly_chart(fig6, use_container_width=True)
+            st.plotly_chart(fig6, width="stretch")
             
     with t4:
         if df_train.empty: st.info("No training metrics logged. Run agent training first.")
@@ -242,26 +242,26 @@ def render_dashboard():
             with col_c:
                 fig7 = px.line(df_train, x="episode", y="mean_reward", title="Mean Reward per Episode", color_discrete_sequence=["#6366F1"])
                 fig7.update_layout(height=280, margin=dict(l=0, r=0, t=30, b=0))
-                st.plotly_chart(fig7, use_container_width=True)
+                st.plotly_chart(fig7, width="stretch")
             with col_d:
                 fig8 = go.Figure()
                 fig8.add_trace(go.Scatter(x=df_train["episode"], y=df_train["offload_rate"], name="Offload Rate", line=dict(color="#F59E0B")))
                 fig8.add_trace(go.Scatter(x=df_train["episode"], y=df_train["false_neg_rate"], name="False Neg Rate", line=dict(color="#EF4444")))
                 fig8.update_layout(title="Offload Rate vs False Negative Rate", height=280, margin=dict(l=0, r=0, t=30, b=0))
-                st.plotly_chart(fig8, use_container_width=True)
+                st.plotly_chart(fig8, width="stretch")
             fig9 = px.line(df_train, x="episode", y="avg_latency_ms", title="Average Latency per Episode (ms)", color_discrete_sequence=["#10B981"])
             fig9.update_layout(height=250, margin=dict(l=0, r=0, t=30, b=0))
-            st.plotly_chart(fig9, use_container_width=True)
+            st.plotly_chart(fig9, width="stretch")
 
     with t5:
         st.subheader("Live Performance: AI vs Traditional Baseline")
         if df_log.empty or "energy_val" not in df_log.columns:
             st.info("Process more tasks to see cumulative performance trends.")
         else:
-            df_log["cumulative_ai"] = df_log["energy_val"].cumsum()
-            df_log["cumulative_baseline"] = df_log["baseline_energy"].cumsum()
-            df_log["cumulative_ai_time"] = df_log["execution_ms"].cumsum() / 1000.0
-            df_log["cumulative_baseline_time"] = df_log["baseline_exec_ms"].cumsum() / 1000.0
+            df_log["cumulative_ai"] = df_log["energy_val"].cumsum() if "energy_val" in df_log.columns else 0.0
+            df_log["cumulative_baseline"] = df_log["baseline_energy"].cumsum() if "baseline_energy" in df_log.columns else 0.0
+            df_log["cumulative_ai_time"] = df_log["execution_ms"].cumsum() / 1000.0 if "execution_ms" in df_log.columns else 0.0
+            df_log["cumulative_baseline_time"] = df_log["baseline_exec_ms"].cumsum() / 1000.0 if "baseline_exec_ms" in df_log.columns else 0.0
             
             col_energy, col_time = st.columns(2)
             
@@ -282,7 +282,7 @@ def render_dashboard():
                 )
                 fig_energy.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(255,255,255,0.1)')
                 fig_energy.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(255,255,255,0.1)')
-                st.plotly_chart(fig_energy, use_container_width=True)
+                st.plotly_chart(fig_energy, width="stretch")
                 
             with col_time:
                 fig_time = go.Figure()
@@ -301,7 +301,7 @@ def render_dashboard():
                 )
                 fig_time.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(255,255,255,0.1)')
                 fig_time.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(255,255,255,0.1)')
-                st.plotly_chart(fig_time, use_container_width=True)
+                st.plotly_chart(fig_time, width="stretch")
 
 init_db()
 
