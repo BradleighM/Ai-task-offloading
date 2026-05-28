@@ -35,9 +35,17 @@ def init_db():
             local_flag       INTEGER,
             server_flag      INTEGER,
             execution_ms     REAL,
-            reward           REAL
+            reward           REAL,
+            energy_val       REAL DEFAULT 0.0,
+            baseline_energy  REAL DEFAULT 0.0
         )
     ''')
+    try:
+        c.execute("ALTER TABLE routing_log ADD COLUMN energy_val REAL DEFAULT 0.0")
+        c.execute("ALTER TABLE routing_log ADD COLUMN baseline_energy REAL DEFAULT 0.0")
+    except sqlite3.OperationalError:
+        pass # Columns already exist
+        
     c.execute('''
         CREATE TABLE IF NOT EXISTS anomaly_scores (
             id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,13 +70,13 @@ def init_db():
     conn.commit()
     conn.close()
 
-def log_routing_decision(cpu, memory, latency, window_size, urgency, predicted_latency, decision, local_flag, server_flag, exec_ms, reward):
+def log_routing_decision(cpu, memory, latency, window_size, urgency, predicted_latency, decision, local_flag, server_flag, exec_ms, reward, energy_val=0.0, baseline_energy=0.0):
     conn = sqlite3.connect(DB_PATH)
     conn.execute('''
         INSERT INTO routing_log
-        (timestamp, cpu_percent, memory_percent, network_latency, window_size, urgency_score, predicted_latency, decision, local_flag, server_flag, execution_ms, reward)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-    ''', (datetime.now().isoformat(), cpu, memory, latency, window_size, urgency, predicted_latency, decision, int(local_flag), int(server_flag) if server_flag is not None else None, exec_ms, reward))
+        (timestamp, cpu_percent, memory_percent, network_latency, window_size, urgency_score, predicted_latency, decision, local_flag, server_flag, execution_ms, reward, energy_val, baseline_energy)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ''', (datetime.now().isoformat(), cpu, memory, latency, window_size, urgency, predicted_latency, decision, int(local_flag), int(server_flag) if server_flag is not None else None, exec_ms, reward, energy_val, baseline_energy))
     conn.commit()
     conn.close()
 
@@ -150,13 +158,19 @@ def render_dashboard():
         st.info("No results yet. Run the system to generate data.")
         return
     stats = get_summary_stats()
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Total Batches Processed", f"{stats['total_batches']:,}")
+    total_ai_energy = df_log["energy_val"].sum() if "energy_val" in df_log.columns else 0.0
+    total_baseline_energy = df_log["baseline_energy"].sum() if "baseline_energy" in df_log.columns else 0.0
+    energy_saved = max(total_baseline_energy - total_ai_energy, 0.0)
+    
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Total Tasks", f"{stats['total_batches']:,}")
     k2.metric("Offload Rate", f"{stats['offload_rate']:.1f}%")
-    k3.metric("Avg Pipeline Latency", f"{stats['avg_latency_ms']:.1f} ms")
-    k4.metric("False Negative Rate", f"{stats['false_neg_rate']:.1f}%")
+    k3.metric("Avg Latency", f"{stats['avg_latency_ms']:.1f} ms")
+    k4.metric("AI Energy", f"{total_ai_energy:.2f} U")
+    k5.metric("Energy Saved", f"{energy_saved:.2f} U", delta=f"{(energy_saved/total_baseline_energy*100):.1f}%" if total_baseline_energy > 0 else None)
+    
     st.divider()
-    t1, t2, t3, t4 = st.tabs(["📊 Anomaly Timeline", "🔁 Routing Decisions", "⚙️  System State", "🏋️  Training Progress"])
+    t1, t2, t3, t4, t5 = st.tabs(["📊 Anomaly Timeline", "🔁 Routing Decisions", "⚙️  System State", "🏋️  Training Progress", "🔋 Energy Analysis"])
     
     with t1:
         st.subheader("Anomaly Score Timeline — Full History")
@@ -231,6 +245,32 @@ def render_dashboard():
             fig9 = px.line(df_train, x="episode", y="avg_latency_ms", title="Average Latency per Episode (ms)", color_discrete_sequence=["#10B981"])
             fig9.update_layout(height=250, margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig9, use_container_width=True)
+
+    with t5:
+        st.subheader("Live Cumulative Energy: AI vs Traditional Baseline")
+        if df_log.empty or "energy_val" not in df_log.columns:
+            st.info("Process more tasks to see cumulative energy trends.")
+        else:
+            df_log["cumulative_ai"] = df_log["energy_val"].cumsum()
+            df_log["cumulative_baseline"] = df_log["baseline_energy"].cumsum()
+            
+            fig_energy = go.Figure()
+            fig_energy.add_trace(go.Scatter(x=df_log.index, y=df_log["cumulative_baseline"], name="Traditional Baseline", line=dict(color="#EF4444", width=2, dash="dash")))
+            fig_energy.add_trace(go.Scatter(x=df_log.index, y=df_log["cumulative_ai"], name="AI Strategy", fill='tonexty', line=dict(color="#10B981", width=3)))
+            
+            fig_energy.update_layout(
+                height=400, 
+                xaxis_title="Task Number", 
+                yaxis_title="Cumulative Energy Consumed (Units)",
+                legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
+                margin=dict(l=0, r=0, t=30, b=0),
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)"
+            )
+            fig_energy.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(255,255,255,0.1)')
+            fig_energy.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(255,255,255,0.1)')
+            
+            st.plotly_chart(fig_energy, use_container_width=True)
 
 init_db()
 
@@ -513,6 +553,10 @@ with tabs[0]:
             energy_factor = 0.1 if actual_decision == "Remote" else 0.8
             energy_val = exec_time * energy_factor * (cpu_usage/100 + 1)
 
+            # Baseline energy (What if we had forced Local?)
+            est_local_exec_time = exec_time if actual_decision == "Local" else (0.5 + (complexity * 0.05))
+            baseline_energy = est_local_exec_time * 0.8 * (cpu_usage/100 + 1)
+
             # Log data to SQLite DB for persistent charts
             cpu = cpu_usage
             memory = psutil.virtual_memory().percent
@@ -529,7 +573,8 @@ with tabs[0]:
                 cpu, memory, latency, window_size=window_size,
                 urgency=urgency, predicted_latency=predicted_lat,
                 decision=decision_int, local_flag=local_flag,
-                server_flag=server_flag, exec_ms=exec_ms, reward=reward
+                server_flag=server_flag, exec_ms=exec_ms, reward=reward,
+                energy_val=energy_val, baseline_energy=baseline_energy
             )
             
             scores = [random.random() for _ in range(50)]
