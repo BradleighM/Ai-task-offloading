@@ -27,8 +27,8 @@ def process_image_cv(image_bytes: bytes, filter_type: str) -> bytes:
     else:
         processed_img = img
 
-    # Simulate extra heavy computation for the server
-    time.sleep(0.5) 
+    # Simulate computation for the server (powerful Edge node, so it's very fast)
+    time.sleep(0.05)
     
     # Encode back to bytes (jpg format)
     _, encoded_img = cv2.imencode('.jpg', processed_img)

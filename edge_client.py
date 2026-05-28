@@ -579,7 +579,7 @@ with tabs[0]:
                         processed = cv2.cvtColor(processed, cv2.COLOR_GRAY2BGR)
                     else:
                         processed = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-                    time.sleep(0.5) # Simulate heavy local effort
+                    time.sleep(1.0 + (complexity * 0.2)) # Simulate heavy local effort
                     _, encoded = cv2.imencode('.jpg', processed)
                     result = encoded.tobytes()
 
@@ -591,7 +591,7 @@ with tabs[0]:
             energy_val = exec_time * energy_factor * (cpu_usage/100 + 1)
 
             # Baseline energy (What if we had forced Local?)
-            est_local_exec_time = exec_time if actual_decision == "Local" else (0.5 + (complexity * 0.05))
+            est_local_exec_time = exec_time if actual_decision == "Local" else (1.0 + (complexity * 0.2))
             baseline_energy = est_local_exec_time * 0.8 * (cpu_usage/100 + 1)
             baseline_exec_ms = est_local_exec_time * 1000
 
